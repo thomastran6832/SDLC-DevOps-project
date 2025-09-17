@@ -1,0 +1,230 @@
+name: 🚀 CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Lint and validate configuration files
+  lint:
+    name: 🧹 Lint & Validate
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Lint Helm Charts
+      uses: azure/k8s-lint@v1
+      with:
+        manifests: |
+          charts/*/templates/*.yaml
+
+    - name: Validate Kubernetes Manifests
+      uses: instrumenta/kubeval-action@master
+      with:
+        files: k8s/**/*.yaml
+
+    - name: Lint YAML files
+      uses: ibiqlik/action-yamllint@v3
+      with:
+        file_or_dir: .
+        config_file: .yamllint.yml
+
+  # Security scanning
+  security:
+    name: 🔒 Security Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  # Test Helm charts
+  test:
+    name: 🧪 Test Helm Charts
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: '3.12.0'
+
+    - name: Test PictShare Chart
+      run: |
+        helm lint charts/pictshare
+        helm template pictshare charts/pictshare --debug
+
+    - name: Set up Kind
+      uses: helm/kind-action@v1.5.0
+      with:
+        cluster_name: test-cluster
+
+    - name: Test deployment
+      run: |
+        kubectl cluster-info
+        helm install test-pictshare charts/pictshare --wait --timeout=5m
+        kubectl get pods -l app.kubernetes.io/name=pictshare
+
+  # Build and push container images (if Dockerfile exists)
+  build:
+    name: 🏗️ Build & Push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    needs: [lint, security, test]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+
+    - name: Build and push Docker image
+      if: hashFiles('Dockerfile') != ''
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+
+  # Deploy to staging environment
+  deploy-staging:
+    name: 🚀 Deploy to Staging
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+    needs: [build]
+    environment: staging
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Configure kubectl
+      uses: azure/k8s-set-context@v3
+      with:
+        method: kubeconfig
+        kubeconfig: ${{ secrets.KUBE_CONFIG_STAGING }}
+
+    - name: Deploy to staging
+      run: |
+        helm upgrade --install pictshare-staging charts/pictshare \
+          --namespace pictshare-staging \
+          --create-namespace \
+          --values charts/pictshare/values-staging.yaml \
+          --set image.tag=${{ github.sha }} \
+          --wait
+
+    - name: Run smoke tests
+      run: |
+        kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=pictshare -n pictshare-staging --timeout=300s
+        kubectl get pods -n pictshare-staging
+
+  # Deploy to production environment
+  deploy-production:
+    name: 🏭 Deploy to Production
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    needs: [build]
+    environment: production
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Configure kubectl
+      uses: azure/k8s-set-context@v3
+      with:
+        method: kubeconfig
+        kubeconfig: ${{ secrets.KUBE_CONFIG_PRODUCTION }}
+
+    - name: Deploy to production
+      run: |
+        helm upgrade --install pictshare-production charts/pictshare \
+          --namespace pictshare-production \
+          --create-namespace \
+          --values charts/pictshare/values-production.yaml \
+          --set image.tag=${{ github.sha }} \
+          --wait
+
+    - name: Run health checks
+      run: |
+        kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=pictshare -n pictshare-production --timeout=300s
+        kubectl get pods -n pictshare-production
+
+    - name: Notify deployment
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#deployments'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        text: "🚀 Production deployment completed successfully!"
+
+  # Update ArgoCD applications
+  gitops-update:
+    name: 📝 Update GitOps
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    needs: [build]
+    steps:
+    - name: Checkout GitOps repo
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ github.repository }}-gitops
+        token: ${{ secrets.GITOPS_TOKEN }}
+        path: gitops
+
+    - name: Update image tags
+      run: |
+        cd gitops
+        if [ "${{ github.ref }}" == "refs/heads/develop" ]; then
+          # Update staging
+          sed -i "s|tag:.*|tag: \"${{ github.sha }}\"|g" charts/pictshare/values-staging.yaml
+        elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+          # Update production
+          sed -i "s|tag:.*|tag: \"${{ github.sha }}\"|g" charts/pictshare/values-production.yaml
+        fi
+
+    - name: Commit changes
+      run: |
+        cd gitops
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add .
+        git commit -m "Update image tag to ${{ github.sha }}" || exit 0
+        git push

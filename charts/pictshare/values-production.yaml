@@ -1,0 +1,50 @@
+# Production environment values
+replicaCount: 3
+
+image:
+  tag: "prod-latest"
+
+ingress:
+  hosts:
+    - host: pictshare.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: pictshare-tls
+      hosts:
+        - pictshare.example.com
+
+pictshare:
+  config:
+    title: "PictShare"
+    domain: "pictshare.example.com"
+
+env:
+  - name: PICTSHARE_TITLE
+    value: "PictShare"
+  - name: PICTSHARE_DOMAIN
+    value: "pictshare.example.com"
+  - name: PHP_UPLOAD_MAX_FILESIZE
+    value: "50M"
+  - name: PHP_POST_MAX_SIZE
+    value: "50M"
+  - name: ENVIRONMENT
+    value: "production"
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+persistence:
+  size: 20Gi

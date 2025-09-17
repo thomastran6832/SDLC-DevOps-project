@@ -1,0 +1,129 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output
+
+# Dependency directories
+node_modules/
+
+# Optional npm cache directory
+.npm
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env
+.env.test
+.env.production
+.env.local
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+*.tfplan
+
+# Helm
+*.tgz
+charts/*/charts/
+charts/*/requirements.lock
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Helm package files
+*.tgz
+
+# Backup files
+backups/
+*.backup
+
+# Local development
+.minikube/
+.kind/
+
+# SSL certificates
+*.crt
+*.key
+*.pem
+
+# ArgoCD local configs
+.argocd/
+
+# Port forward logs
+/tmp/k8s-port-forwards/
+
+# Build artifacts
+dist/
+build/
+
+# Test artifacts
+test-results/
+coverage/
+
+# Vendor directories
+vendor/
+
+# Secrets (even though they should be in Vault)
+secrets/
+*.secret
+
+# Local Helm values
+values-local.yaml
+*-local.yaml
+
+# Generated documentation
+docs/generated/
+
+# Cache directories
+.cache/
+
+# Platform specific
+.vagrant/
+Vagrantfile.local

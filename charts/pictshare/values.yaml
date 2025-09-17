@@ -1,0 +1,101 @@
+# Default values for pictshare
+replicaCount: 2
+
+image:
+  repository: hascheksolutions/pictshare
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 80
+
+ingress:
+  enabled: true
+  className: ""
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/rewrite-target: /
+  hosts:
+    - host: pictshare.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# PictShare specific configuration
+pictshare:
+  config:
+    title: "PictShare"
+    domain: "pictshare.local"
+    maxFileSize: "50M"
+    allowedExtensions: "jpg,jpeg,png,gif,webp"
+
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 8Gi
+  mountPath: /var/www/html/data
+
+env:
+  - name: PICTSHARE_TITLE
+    value: "PictShare"
+  - name: PICTSHARE_DOMAIN
+    value: "pictshare.local"
+  - name: PHP_UPLOAD_MAX_FILESIZE
+    value: "50M"
+  - name: PHP_POST_MAX_SIZE
+    value: "50M"
+
+# Health checks
+livenessProbe:
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5

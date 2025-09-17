@@ -1,0 +1,64 @@
+replicaCount: 1
+
+image:
+  repository: solemate/backend
+  pullPolicy: Never
+  tag: "latest"
+
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 5000
+  targetPort: 5000
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+  hosts:
+    - host: api.solemate.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Database configuration
+database:
+  url: "postgresql://solemate:password@postgresql:5432/solemate_db?schema=public"
+
+# Application configuration
+app:
+  port: 5000
+  nodeEnv: "production"
+  jwtSecret: "your-super-secret-jwt-key-production"
+  jwtExpiresIn: "7d"
+
+# PostgreSQL subchart
+postgresql:
+  enabled: true
+  auth:
+    username: solemate
+    password: password
+    database: solemate_db
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+    nodeSelector: {}

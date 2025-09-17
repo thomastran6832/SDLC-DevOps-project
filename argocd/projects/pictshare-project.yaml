@@ -1,0 +1,55 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: pictshare-project
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: PictShare application project
+  sourceRepos:
+    - 'https://gitlab.com/thomastran6832/argocd-config.git'
+  destinations:
+    - namespace: pictshare-staging
+      server: https://kubernetes.default.svc
+    - namespace: pictshare-production
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+  namespaceResourceWhitelist:
+    - group: ''
+      kind: ConfigMap
+    - group: ''
+      kind: Secret
+    - group: ''
+      kind: Service
+    - group: ''
+      kind: ServiceAccount
+    - group: apps
+      kind: Deployment
+    - group: apps
+      kind: ReplicaSet
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: ''
+      kind: PersistentVolumeClaim
+  roles:
+    - name: pictshare-admin
+      description: Admin access to PictShare project
+      policies:
+        - p, proj:pictshare-project:pictshare-admin, applications, *, pictshare-project/*, allow
+        - p, proj:pictshare-project:pictshare-admin, repositories, *, *, allow
+      groups:
+        - pictshare:admin
+    - name: pictshare-developer
+      description: Developer access to PictShare project
+      policies:
+        - p, proj:pictshare-project:pictshare-developer, applications, get, pictshare-project/*, allow
+        - p, proj:pictshare-project:pictshare-developer, applications, sync, pictshare-project/*, allow
+      groups:
+        - pictshare:developer

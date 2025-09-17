@@ -1,0 +1,35 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pictshare-production
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: pictshare
+    app.kubernetes.io/environment: production
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: pictshare-project
+  source:
+    repoURL: https://gitlab.com/thomastran6832/argocd-config.git
+    targetRevision: HEAD
+    path: helm/pictshare
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-production.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: pictshare-production
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  revisionHistoryLimit: 10

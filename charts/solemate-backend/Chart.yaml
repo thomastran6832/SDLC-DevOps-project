@@ -1,0 +1,15 @@
+apiVersion: v2
+name: solemate-backend
+description: SoleMate E-commerce Backend API
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - ecommerce
+  - backend
+  - api
+  - nodejs
+home: https://github.com/solemate/backend
+maintainers:
+  - name: SoleMate Team
+    email: dev@solemate.com

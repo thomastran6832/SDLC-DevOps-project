@@ -1,0 +1,265 @@
+# GitLab CI/CD Pipeline for Kubernetes DevOps Platform
+# Copy this to .gitlab-ci.yml in your GitLab repository
+
+variables:
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: "/certs"
+  IMAGE_TAG: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+  STAGING_TAG: $CI_REGISTRY_IMAGE:staging-$CI_COMMIT_SHA
+  PROD_TAG: $CI_REGISTRY_IMAGE:prod-$CI_COMMIT_SHA
+  HELM_CHART_VERSION: "0.1.0"
+
+stages:
+  - lint
+  - test
+  - security
+  - build
+  - package
+  - deploy-staging
+  - deploy-production
+
+# Lint and validate configurations
+lint:
+  stage: lint
+  image: alpine/helm:latest
+  before_script:
+    - apk add --no-cache yamllint
+  script:
+    - helm lint charts/pictshare
+    - yamllint charts/ k8s/ argocd/
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+# Test Helm charts
+test-helm:
+  stage: test
+  image: alpine/helm:latest
+  before_script:
+    - apk add --no-cache kubectl
+  script:
+    # Dry run helm install
+    - helm template pictshare charts/pictshare --debug
+    - helm template pictshare charts/pictshare --values charts/pictshare/values-staging.yaml
+    - helm template pictshare charts/pictshare --values charts/pictshare/values-production.yaml
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+# Unit tests (if application code exists)
+test-unit:
+  stage: test
+  image: node:18-alpine
+  script:
+    - npm ci
+    - npm run test:unit
+  coverage: '/Coverage: \d+\.\d+%/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura-coverage.xml
+    paths:
+      - coverage/
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - exists:
+      - package.json
+
+# Integration tests
+test-integration:
+  stage: test
+  image: docker:20.10.16
+  services:
+    - docker:20.10.16-dind
+  script:
+    - docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit
+    - docker-compose -f docker-compose.test.yml down
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - exists:
+      - docker-compose.test.yml
+
+# Security scanning
+security-container-scan:
+  stage: security
+  image: docker:20.10.16
+  services:
+    - docker:20.10.16-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $IMAGE_TAG .
+    - docker run --rm -v /var/run/docker.sock:/var/run/docker.sock
+      -v $(pwd):/src aquasec/trivy:latest image --exit-code 1 --severity HIGH,CRITICAL $IMAGE_TAG
+  allow_failure: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - exists:
+      - Dockerfile
+
+# SAST scanning
+sast:
+  stage: security
+  image: registry.gitlab.com/gitlab-org/security-products/sast:latest
+  script:
+    - /analyzer run
+  artifacts:
+    reports:
+      sast: gl-sast-report.json
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+# Build container image
+build:
+  stage: build
+  image: docker:20.10.16
+  services:
+    - docker:20.10.16-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $IMAGE_TAG .
+    - docker push $IMAGE_TAG
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - exists:
+      - Dockerfile
+
+# Package Helm chart
+package-helm:
+  stage: package
+  image: alpine/helm:latest
+  script:
+    - helm package charts/pictshare --version $HELM_CHART_VERSION
+    - helm repo index . --url $CI_PROJECT_URL/-/raw/$CI_COMMIT_REF_NAME/
+  artifacts:
+    paths:
+      - "*.tgz"
+      - index.yaml
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+# Package for staging
+package-staging:
+  stage: package
+  image: docker:20.10.16
+  services:
+    - docker:20.10.16-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker pull $IMAGE_TAG
+    - docker tag $IMAGE_TAG $STAGING_TAG
+    - docker push $STAGING_TAG
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - exists:
+      - Dockerfile
+
+# Package for production
+package-production:
+  stage: package
+  image: docker:20.10.16
+  services:
+    - docker:20.10.16-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker pull $IMAGE_TAG
+    - docker tag $IMAGE_TAG $PROD_TAG
+    - docker push $PROD_TAG
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - exists:
+      - Dockerfile
+
+# Deploy to staging environment
+deploy-staging:
+  stage: deploy-staging
+  image: alpine/helm:latest
+  environment:
+    name: staging
+    url: https://staging-pictshare.example.com
+  before_script:
+    - apk add --no-cache git kubectl
+    - git config --global user.email "gitlab-ci@example.com"
+    - git config --global user.name "GitLab CI"
+  script:
+    # Update GitOps repository
+    - git clone https://$ARGOCD_REPO_TOKEN@gitlab.com/yourgroup/argocd-config.git
+    - cd argocd-config
+    - sed -i "s|tag:.*|tag: \"staging-$CI_COMMIT_SHA\"|g" charts/pictshare/values-staging.yaml
+    - git add .
+    - git commit -m "Update staging image to staging-$CI_COMMIT_SHA [skip ci]"
+    - git push origin main
+
+    # Alternative: Direct deployment (if not using GitOps)
+    # - kubectl config use-context staging
+    # - helm upgrade --install pictshare-staging charts/pictshare
+    #     --namespace pictshare-staging
+    #     --values charts/pictshare/values-staging.yaml
+    #     --set image.tag=staging-$CI_COMMIT_SHA
+    #     --wait
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+# Deploy to production environment
+deploy-production:
+  stage: deploy-production
+  image: alpine/helm:latest
+  environment:
+    name: production
+    url: https://pictshare.example.com
+  before_script:
+    - apk add --no-cache git kubectl
+    - git config --global user.email "gitlab-ci@example.com"
+    - git config --global user.name "GitLab CI"
+  script:
+    # Update GitOps repository
+    - git clone https://$ARGOCD_REPO_TOKEN@gitlab.com/yourgroup/argocd-config.git
+    - cd argocd-config
+    - sed -i "s|tag:.*|tag: \"prod-$CI_COMMIT_SHA\"|g" charts/pictshare/values-production.yaml
+    - git add .
+    - git commit -m "Update production image to prod-$CI_COMMIT_SHA [skip ci]"
+    - git push origin main
+  when: manual
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# Notify deployment status
+notify-slack:
+  stage: deploy-production
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - |
+      curl -X POST -H 'Content-type: application/json' \
+        --data "{\"text\":\"🚀 Production deployment completed for commit $CI_COMMIT_SHA\"}" \
+        $SLACK_WEBHOOK_URL
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  when: on_success
+
+# Cleanup old images (optional)
+cleanup:
+  stage: deploy-production
+  image: alpine:latest
+  script:
+    - echo "Cleanup old container images and artifacts"
+    # Add cleanup logic here
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  when: manual
+  allow_failure: true

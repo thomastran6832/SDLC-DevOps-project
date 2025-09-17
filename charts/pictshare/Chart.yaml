@@ -1,0 +1,17 @@
+apiVersion: v2
+name: pictshare
+description: A Helm chart for PictShare image sharing application
+type: application
+version: 0.1.0
+appVersion: "latest"
+home: https://gitlab.com/thomastran6832/dev-test
+sources:
+  - https://gitlab.com/thomastran6832/dev-test
+maintainers:
+  - name: Thomas Tran
+    email: thomastran6832@gmail.com
+keywords:
+  - pictshare
+  - image-sharing
+  - php
+  - web-application
